@@ -332,3 +332,6 @@ export function shouldSubmit(
 
   return { submit: triggers.length > 0, triggers };
 }
+
+export * from './channel-manager';
+export * from './distributed-lock';
