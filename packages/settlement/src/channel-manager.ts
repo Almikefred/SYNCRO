@@ -38,7 +38,8 @@ export type ChannelStatus =
   | "topping_up"
   | "exhausted"
   | "closed"
-  | "failed";
+  | "failed"
+  | "unknown";
 
 export interface ChannelState {
   /** Stable key identifying the (principal, provider) pair. */
@@ -393,7 +394,7 @@ export class ChannelManager {
       key: ChannelManager.key(principal, provider),
       principal,
       provider,
-      status: "closed",
+      status: "unknown",
       balance: 0n,
       burnRate: 0,
       lastUpdated: this.now(),

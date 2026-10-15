@@ -1,0 +1,16 @@
+{
+  "name": "@syncro/settlement",
+  "version": "1.0.0",
+  "private": true,
+  "description": "V3 Settlement package",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "vitest": "^1.4.0",
+    "typescript": "^5.9.3"
+  }
+}
