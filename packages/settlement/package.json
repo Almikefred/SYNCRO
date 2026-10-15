@@ -1,0 +1,24 @@
+{
+  "name": "@syncro/settlement",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Settlement and channel lifecycle manager",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.43",
+    "typescript": "^5.4.0",
+    "vitest": "^1.4.0"
+  }
+}
