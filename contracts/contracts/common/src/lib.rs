@@ -6,8 +6,11 @@
 //! - Version metadata management
 //! - Error code registry offsets
 //! - Interface version tracking
+//! - Storage TTL constants and helpers (see [`ttl`])
 
 use soroban_sdk::{Env, Symbol};
+
+pub mod ttl;
 
 // ============================================================================
 // Version Management

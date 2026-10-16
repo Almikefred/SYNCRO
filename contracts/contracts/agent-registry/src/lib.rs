@@ -69,6 +69,7 @@ impl AgentRegistry {
             return Err(Error::AlreadyInitialized);
         }
         env.storage().instance().set(&DataKey::Admin, &admin);
+        syncro_common::ttl::extend_instance(&env);
         Ok(())
     }
 
@@ -80,6 +81,8 @@ impl AgentRegistry {
             .ok_or(Error::NotInitialized)?;
 
         admin.require_auth();
+        // Every admin call keeps the instance storage (admin, pending admin) alive.
+        syncro_common::ttl::extend_instance(env);
         Ok(admin)
     }
 
@@ -148,6 +151,7 @@ impl AgentRegistry {
 
         // Only the nominee may accept.
         pending.require_auth();
+        syncro_common::ttl::extend_instance(&env);
 
         env.storage().instance().set(&DataKey::Admin, &pending);
         env.storage().instance().remove(&DataKey::PendingAdmin);
@@ -171,9 +175,7 @@ impl AgentRegistry {
         // u32 would panic on the type mismatch. Initialising to 0 keeps the
         // stored type consistent and means a freshly registered agent has no
         // scopes until `update_scopes` grants them.
-        env.storage()
-            .persistent()
-            .set(&DataKey::Agent(agent.clone()), &0u32);
+        syncro_common::ttl::persistent_set(&env, &DataKey::Agent(agent.clone()), &0u32);
 
         env.events()
             .publish((symbol_short!("agent"), symbol_short!("reg")), agent);
@@ -192,13 +194,11 @@ impl AgentRegistry {
             return Err(Error::InvalidScope);
         }
 
-        if !env.storage().persistent().has(&DataKey::Agent(agent.clone())) {
+        if !syncro_common::ttl::persistent_has(&env, &DataKey::Agent(agent.clone())) {
             return Err(Error::Unauthorized);
         }
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::Agent(agent.clone()), &scopes.0);
+        syncro_common::ttl::persistent_set(&env, &DataKey::Agent(agent.clone()), &scopes.0);
 
         env.events().publish(
             (symbol_short!("agent"), symbol_short!("scopes")),
@@ -227,23 +227,19 @@ impl AgentRegistry {
 
     /// Check if an agent is authorized.
     pub fn is_authorized(env: Env, agent: Address) -> bool {
-        env.storage().persistent().has(&DataKey::Agent(agent))
+        syncro_common::ttl::persistent_has(&env, &DataKey::Agent(agent))
     }
 
     /// Return Err(Error::NotRegistered) if the agent has no registry entry.
     pub fn require_authorized(env: Env, agent: Address) -> Result<(), Error> {
-        if !env.storage().persistent().has(&DataKey::Agent(agent)) {
+        if !syncro_common::ttl::persistent_has(&env, &DataKey::Agent(agent)) {
             return Err(Error::NotRegistered);
         }
         Ok(())
     }
 
     pub fn has_scope(env: Env, agent: Address, scope: ScopeSet) -> bool {
-        match env
-            .storage()
-            .persistent()
-            .get::<_, u32>(&DataKey::Agent(agent))
-        {
+        match syncro_common::ttl::persistent_get::<_, u32>(&env, &DataKey::Agent(agent)) {
             Some(mask) => ScopeSet(mask).contains(&scope),
             None => false,
         }

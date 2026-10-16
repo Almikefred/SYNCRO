@@ -31,6 +31,7 @@
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env,
 };
+use syncro_contract_common as syncro_common;
 
 // ============================================================================
 // Constants
@@ -190,7 +191,7 @@ impl AgentSpendCapContract {
             status: CapStatus::Active,
         };
 
-        env.storage().persistent().set(&DataKey::Cap(cap_id), &cap);
+        syncro_common::ttl::persistent_set(&env, &DataKey::Cap(cap_id), &cap);
 
         env.events().publish(
             (symbol_short!("cap"), symbol_short!("issued")),
@@ -222,10 +223,7 @@ impl AgentSpendCapContract {
             return Err(SpendCapError::InvalidInput);
         }
 
-        let mut cap: SpendCap = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Cap(cap_id))
+        let mut cap: SpendCap = syncro_common::ttl::persistent_get(&env, &DataKey::Cap(cap_id))
             .ok_or(SpendCapError::CapNotFound)?;
 
         // Lazy period rollover — no carryover.
@@ -251,7 +249,7 @@ impl AgentSpendCapContract {
 
         // Atomic debit — persist before returning.
         cap.consumed = new_consumed;
-        env.storage().persistent().set(&DataKey::Cap(cap_id), &cap);
+        syncro_common::ttl::persistent_set(&env, &DataKey::Cap(cap_id), &cap);
 
         env.events().publish(
             (symbol_short!("cap"), symbol_short!("debited")),
@@ -266,10 +264,7 @@ impl AgentSpendCapContract {
     /// Return the remaining headroom for the current period, accounting for
     /// lazy rollover.  Does NOT mutate state.
     pub fn get_balance(env: Env, cap_id: u64) -> Result<i128, SpendCapError> {
-        let mut cap: SpendCap = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Cap(cap_id))
+        let mut cap: SpendCap = syncro_common::ttl::persistent_get(&env, &DataKey::Cap(cap_id))
             .ok_or(SpendCapError::CapNotFound)?;
 
         let now = env.ledger().timestamp();
@@ -280,10 +275,7 @@ impl AgentSpendCapContract {
 
     /// Return full cap metadata (after lazy rollover).
     pub fn get_cap(env: Env, cap_id: u64) -> Result<SpendCap, SpendCapError> {
-        let mut cap: SpendCap = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Cap(cap_id))
+        let mut cap: SpendCap = syncro_common::ttl::persistent_get(&env, &DataKey::Cap(cap_id))
             .ok_or(SpendCapError::CapNotFound)?;
 
         let now = env.ledger().timestamp();
@@ -304,10 +296,7 @@ impl AgentSpendCapContract {
     ) -> Result<(), SpendCapError> {
         caller.require_auth();
 
-        let mut cap: SpendCap = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Cap(cap_id))
+        let mut cap: SpendCap = syncro_common::ttl::persistent_get(&env, &DataKey::Cap(cap_id))
             .ok_or(SpendCapError::CapNotFound)?;
 
         if cap.principal != caller {
@@ -315,7 +304,7 @@ impl AgentSpendCapContract {
         }
 
         cap.status = CapStatus::Suspended;
-        env.storage().persistent().set(&DataKey::Cap(cap_id), &cap);
+        syncro_common::ttl::persistent_set(&env, &DataKey::Cap(cap_id), &cap);
 
         env.events().publish(
             (symbol_short!("cap"), symbol_short!("suspended")),
@@ -333,10 +322,7 @@ impl AgentSpendCapContract {
     ) -> Result<(), SpendCapError> {
         caller.require_auth();
 
-        let mut cap: SpendCap = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Cap(cap_id))
+        let mut cap: SpendCap = syncro_common::ttl::persistent_get(&env, &DataKey::Cap(cap_id))
             .ok_or(SpendCapError::CapNotFound)?;
 
         if cap.principal != caller {
@@ -344,7 +330,7 @@ impl AgentSpendCapContract {
         }
 
         cap.status = CapStatus::Active;
-        env.storage().persistent().set(&DataKey::Cap(cap_id), &cap);
+        syncro_common::ttl::persistent_set(&env, &DataKey::Cap(cap_id), &cap);
 
         env.events().publish(
             (symbol_short!("cap"), symbol_short!("resumed")),
@@ -367,10 +353,7 @@ impl AgentSpendCapContract {
             return Err(SpendCapError::InvalidInput);
         }
 
-        let mut cap: SpendCap = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Cap(cap_id))
+        let mut cap: SpendCap = syncro_common::ttl::persistent_get(&env, &DataKey::Cap(cap_id))
             .ok_or(SpendCapError::CapNotFound)?;
 
         if cap.principal != caller {
@@ -382,7 +365,7 @@ impl AgentSpendCapContract {
             .checked_add(additional)
             .ok_or(SpendCapError::InvalidInput)?;
 
-        env.storage().persistent().set(&DataKey::Cap(cap_id), &cap);
+        syncro_common::ttl::persistent_set(&env, &DataKey::Cap(cap_id), &cap);
 
         env.events().publish(
             (symbol_short!("cap"), symbol_short!("toppedup")),
@@ -406,6 +389,8 @@ impl AgentSpendCapContract {
         env.storage()
             .instance()
             .set(&DataKey::CapCounter, &next);
+        // Keep the instance storage (cap counter) alive on every issuance.
+        syncro_common::ttl::extend_instance(env);
         Ok(next)
     }
 
