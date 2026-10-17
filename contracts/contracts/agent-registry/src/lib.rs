@@ -79,6 +79,7 @@ impl AgentRegistry {
             return Err(Error::AlreadyInitialized);
         }
         env.storage().instance().set(&DataKey::Admin, &admin);
+        syncro_common::ttl::extend_instance(&env);
         Ok(())
     }
 
@@ -90,6 +91,8 @@ impl AgentRegistry {
             .ok_or(Error::NotInitialized)?;
 
         admin.require_auth();
+        // Every admin call keeps the instance storage (admin, pending admin) alive.
+        syncro_common::ttl::extend_instance(env);
         Ok(admin)
     }
 
@@ -158,6 +161,7 @@ impl AgentRegistry {
 
         // Only the nominee may accept.
         pending.require_auth();
+        syncro_common::ttl::extend_instance(&env);
 
         env.storage().instance().set(&DataKey::Admin, &pending);
         env.storage().instance().remove(&DataKey::PendingAdmin);
@@ -220,7 +224,7 @@ impl AgentRegistry {
         Self::require_admin(&env)?;
         Self::check_expiry(&env, expires_at)?;
 
-        if !env.storage().persistent().has(&DataKey::Agent(agent.clone())) {
+        if !syncro_common::ttl::persistent_has(&env, &DataKey::Agent(agent.clone())) {
             return Err(Error::NotRegistered);
         }
 
@@ -232,7 +236,7 @@ impl AgentRegistry {
     /// Returns `None` for "never expires" AND for unknown agents; use
     /// `is_authorized` to tell those apart.
     pub fn get_expiry(env: Env, agent: Address) -> Option<u64> {
-        env.storage().persistent().get(&DataKey::AgentExpiry(agent))
+        syncro_common::ttl::persistent_get::<_, u64>(&env, &DataKey::AgentExpiry(agent))
     }
 
     fn store_new_agent(env: &Env, agent: &Address) {
@@ -242,9 +246,7 @@ impl AgentRegistry {
         // u32 would panic on the type mismatch. Initialising to 0 keeps the
         // stored type consistent and means a freshly registered agent has no
         // scopes until `update_scopes` grants them.
-        env.storage()
-            .persistent()
-            .set(&DataKey::Agent(agent.clone()), &0u32);
+        syncro_common::ttl::persistent_set(env, &DataKey::Agent(agent.clone()), &0u32);
     }
 
     /// Expiry must be strictly in the future (`None` is always fine).
@@ -258,9 +260,7 @@ impl AgentRegistry {
     fn write_expiry(env: &Env, agent: &Address, expires_at: Option<u64>) {
         match expires_at {
             Some(t) => {
-                env.storage()
-                    .persistent()
-                    .set(&DataKey::AgentExpiry(agent.clone()), &t);
+                syncro_common::ttl::persistent_set(env, &DataKey::AgentExpiry(agent.clone()), &t);
                 env.events().publish(
                     (symbol_short!("agent"), symbol_short!("exp_set")),
                     (agent.clone(), t),
@@ -281,11 +281,10 @@ impl AgentRegistry {
     /// True when the agent has an expiry and the ledger time has reached it.
     /// Authority is valid while `now < expires_at`.
     fn is_expired(env: &Env, agent: &Address) -> bool {
-        match env
-            .storage()
-            .persistent()
-            .get::<_, u64>(&DataKey::AgentExpiry(agent.clone()))
-        {
+        match syncro_common::ttl::persistent_get::<_, u64>(
+            env,
+            &DataKey::AgentExpiry(agent.clone()),
+        ) {
             Some(t) => env.ledger().timestamp() >= t,
             None => false,
         }
@@ -302,13 +301,11 @@ impl AgentRegistry {
             return Err(Error::InvalidScope);
         }
 
-        if !env.storage().persistent().has(&DataKey::Agent(agent.clone())) {
+        if !syncro_common::ttl::persistent_has(&env, &DataKey::Agent(agent.clone())) {
             return Err(Error::Unauthorized);
         }
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::Agent(agent.clone()), &scopes.0);
+        syncro_common::ttl::persistent_set(&env, &DataKey::Agent(agent.clone()), &scopes.0);
 
         env.events().publish(
             (symbol_short!("agent"), symbol_short!("scopes")),
@@ -340,14 +337,14 @@ impl AgentRegistry {
 
     /// Check if an agent is authorized: registered AND not expired.
     pub fn is_authorized(env: Env, agent: Address) -> bool {
-        env.storage().persistent().has(&DataKey::Agent(agent.clone()))
+        syncro_common::ttl::persistent_has(&env, &DataKey::Agent(agent.clone()))
             && !Self::is_expired(&env, &agent)
     }
 
     /// Return Err(Error::NotRegistered) if the agent has no registry entry, or
     /// Err(Error::AuthorityExpired) if its authority has lapsed.
     pub fn require_authorized(env: Env, agent: Address) -> Result<(), Error> {
-        if !env.storage().persistent().has(&DataKey::Agent(agent.clone())) {
+        if !syncro_common::ttl::persistent_has(&env, &DataKey::Agent(agent.clone())) {
             return Err(Error::NotRegistered);
         }
         if Self::is_expired(&env, &agent) {
@@ -360,11 +357,7 @@ impl AgentRegistry {
         if Self::is_expired(&env, &agent) {
             return false;
         }
-        match env
-            .storage()
-            .persistent()
-            .get::<_, u32>(&DataKey::Agent(agent))
-        {
+        match syncro_common::ttl::persistent_get::<_, u32>(&env, &DataKey::Agent(agent)) {
             Some(mask) => ScopeSet(mask).contains(&scope),
             None => false,
         }
@@ -392,4 +385,3 @@ impl AgentRegistry {
 mod test;
 #[cfg(test)]
 mod negative;
-

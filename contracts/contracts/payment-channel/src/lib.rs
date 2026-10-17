@@ -226,6 +226,7 @@ impl PaymentChannelContract {
             return Err(Error::AlreadyInitialized);
         }
         env.storage().instance().set(&DataKey::Admin, &admin);
+        syncro_common::ttl::extend_instance(&env);
         Ok(())
     }
 
@@ -236,6 +237,8 @@ impl PaymentChannelContract {
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
+        // Every admin call keeps the instance storage (admin, counters) alive.
+        syncro_common::ttl::extend_instance(env);
         Ok(admin)
     }
 
@@ -294,10 +297,9 @@ impl PaymentChannelContract {
             dispute_window,
         };
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::Channel(id), &channel);
+        syncro_common::ttl::persistent_set(&env, &DataKey::Channel(id), &channel);
         env.storage().instance().set(&DataKey::ChannelCount, &id);
+        syncro_common::ttl::extend_instance(&env);
 
         env.events().publish(
             (symbol_short!("channel"), symbol_short!("opened")),
@@ -342,10 +344,7 @@ impl PaymentChannelContract {
         sig_a: Address,
         sig_b: Address,
     ) -> Result<(), Error> {
-        let mut channel: PaymentChannel = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Channel(channel_id))
+        let mut channel: PaymentChannel = syncro_common::ttl::persistent_get(&env, &DataKey::Channel(channel_id))
             .ok_or(Error::ChannelNotFound)?;
 
         if channel.state != ChannelState::Open && channel.state != ChannelState::Closing {
@@ -369,9 +368,7 @@ impl PaymentChannelContract {
         channel.sequence = sequence_number;
         channel.state = ChannelState::Open;
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::Channel(channel_id), &channel);
+        syncro_common::ttl::persistent_set(&env, &DataKey::Channel(channel_id), &channel);
         env.events().publish(
             (symbol_short!("channel"), symbol_short!("submitted")),
             (channel_id, balance_a, balance_b, sequence_number),
@@ -387,10 +384,7 @@ impl PaymentChannelContract {
         seq: u64,
         sig: Address,
     ) -> Result<(), Error> {
-        let mut channel: PaymentChannel = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Channel(channel_id))
+        let mut channel: PaymentChannel = syncro_common::ttl::persistent_get(&env, &DataKey::Channel(channel_id))
             .ok_or(Error::ChannelNotFound)?;
 
         if channel.state != ChannelState::Open {
@@ -411,9 +405,7 @@ impl PaymentChannelContract {
         channel.state = ChannelState::Closing;
         channel.closing_started_at = env.ledger().timestamp();
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::Channel(channel_id), &channel);
+        syncro_common::ttl::persistent_set(&env, &DataKey::Channel(channel_id), &channel);
         env.events().publish(
             (symbol_short!("channel"), symbol_short!("closing")),
             (channel_id, balance_a, balance_b, seq),
@@ -441,10 +433,7 @@ impl PaymentChannelContract {
         sig_a: Address,
         sig_b: Address,
     ) -> Result<(), Error> {
-        let mut channel: PaymentChannel = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Channel(channel_id))
+        let mut channel: PaymentChannel = syncro_common::ttl::persistent_get(&env, &DataKey::Channel(channel_id))
             .ok_or(Error::ChannelNotFound)?;
 
         if channel.state != ChannelState::Closing {
@@ -474,9 +463,7 @@ impl PaymentChannelContract {
         // Reset deadline so the initiator has a full window to respond.
         channel.dispute_deadline = now + channel.dispute_window;
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::Channel(channel_id), &channel);
+        syncro_common::ttl::persistent_set(&env, &DataKey::Channel(channel_id), &channel);
         env.events().publish(
             (symbol_short!("channel"), symbol_short!("disputed")),
             (channel_id, balance_a, balance_b, higher_seq),
@@ -485,10 +472,7 @@ impl PaymentChannelContract {
     }
 
     pub fn finalize(env: Env, channel_id: u64, expected_sequence: u64) -> Result<(), Error> {
-        let mut channel: PaymentChannel = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Channel(channel_id))
+        let mut channel: PaymentChannel = syncro_common::ttl::persistent_get(&env, &DataKey::Channel(channel_id))
             .ok_or(Error::ChannelNotFound)?;
 
         if channel.state != ChannelState::Closing && channel.state != ChannelState::Dispute {
@@ -512,9 +496,7 @@ impl PaymentChannelContract {
         // Mark closed and persist BEFORE any external call.  A re-entrant
         // `finalize` call would now fail the `InvalidState` guard above.
         channel.state = ChannelState::Closed;
-        env.storage()
-            .persistent()
-            .set(&DataKey::Channel(channel_id), &channel);
+        syncro_common::ttl::persistent_set(&env, &DataKey::Channel(channel_id), &channel);
 
         env.events().publish(
             (symbol_short!("channel"), symbol_short!("closed")),
@@ -535,15 +517,9 @@ impl PaymentChannelContract {
 
         // Unused bounty returns to the depositor; a watchtower never claims it
         // unless they successfully submitted a newer state during the window.
-        let bounty: i128 = env
-            .storage()
-            .persistent()
-            .get(&DataKey::WatchtowerBounty(channel_id))
+        let bounty: i128 = syncro_common::ttl::persistent_get(&env, &DataKey::WatchtowerBounty(channel_id))
             .unwrap_or(0);
-        let paid: bool = env
-            .storage()
-            .persistent()
-            .get(&DataKey::BountyPaid(channel_id))
+        let paid: bool = syncro_common::ttl::persistent_get(&env, &DataKey::BountyPaid(channel_id))
             .unwrap_or(false);
         if bounty > 0 && !paid {
             token_client.transfer(
@@ -563,10 +539,7 @@ impl PaymentChannelContract {
         amount: i128,
         depositor: Address,
     ) -> Result<(), Error> {
-        let mut channel: PaymentChannel = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Channel(channel_id))
+        let mut channel: PaymentChannel = syncro_common::ttl::persistent_get(&env, &DataKey::Channel(channel_id))
             .ok_or(Error::ChannelNotFound)?;
 
         if channel.state != ChannelState::Open {
@@ -585,9 +558,7 @@ impl PaymentChannelContract {
 
         // ── EFFECTS ─────────────────────────────────────────────────────────
         channel.balance_a += amount;
-        env.storage()
-            .persistent()
-            .set(&DataKey::Channel(channel_id), &channel);
+        syncro_common::ttl::persistent_set(&env, &DataKey::Channel(channel_id), &channel);
 
         env.events().publish(
             (symbol_short!("channel"), symbol_short!("toppedup")),
@@ -602,9 +573,7 @@ impl PaymentChannelContract {
     }
 
     pub fn get_channel(env: Env, channel_id: u64) -> Option<PaymentChannel> {
-        env.storage()
-            .persistent()
-            .get(&DataKey::Channel(channel_id))
+        syncro_common::ttl::persistent_get(&env, &DataKey::Channel(channel_id))
     }
 
     // ── Payment Proof verification ────────────────────────────────────────────
@@ -653,10 +622,7 @@ impl PaymentChannelContract {
         }
 
         // ── 1. Channel lookup and state check ────────────────────────────────
-        let mut channel: PaymentChannel = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Channel(proof.channel_id))
+        let mut channel: PaymentChannel = syncro_common::ttl::persistent_get(&env, &DataKey::Channel(proof.channel_id))
             .ok_or(Error::ChannelNotFound)?;
 
         if channel.state != ChannelState::Open {
@@ -685,7 +651,7 @@ impl PaymentChannelContract {
         // The set is keyed by (channel_id, nonce). A present key means the
         // nonce has already been consumed; reject regardless of request_hash.
         let nonce_key = DataKey::SeenNonce(proof.channel_id, proof.nonce);
-        if env.storage().persistent().has(&nonce_key) {
+        if syncro_common::ttl::persistent_has(&env, &nonce_key) {
             return Err(Error::ProofAlreadyUsed);
         }
 
@@ -706,15 +672,13 @@ impl PaymentChannelContract {
 
         // ── EFFECTS — mutate state before any interaction ─────────────────────
         // Mark nonce consumed.
-        env.storage().persistent().set(&nonce_key, &true);
+        syncro_common::ttl::persistent_set(&env, &nonce_key, &true);
 
         // Debit payer, credit counterparty.
         channel.balance_a -= proof.amount;
         channel.balance_b += proof.amount;
         channel.sequence += 1;
-        env.storage()
-            .persistent()
-            .set(&DataKey::Channel(proof.channel_id), &channel);
+        syncro_common::ttl::persistent_set(&env, &DataKey::Channel(proof.channel_id), &channel);
 
         env.events().publish(
             (symbol_short!("proof"), symbol_short!("verified")),
@@ -732,9 +696,7 @@ impl PaymentChannelContract {
     /// Returns `true` if the nonce has already been consumed for the given
     /// channel.  Useful for off-chain idempotency checks before submitting.
     pub fn is_nonce_used(env: Env, channel_id: u64, nonce: u64) -> bool {
-        env.storage()
-            .persistent()
-            .has(&DataKey::SeenNonce(channel_id, nonce))
+        syncro_common::ttl::persistent_has(&env, &DataKey::SeenNonce(channel_id, nonce))
     }
 
     /// Register `watchtower` to submit a newer signed state on `party`'s behalf.
@@ -752,10 +714,7 @@ impl PaymentChannelContract {
     ) -> Result<(), Error> {
         party.require_auth();
 
-        let mut channel: PaymentChannel = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Channel(channel_id))
+        let mut channel: PaymentChannel = syncro_common::ttl::persistent_get(&env, &DataKey::Channel(channel_id))
             .ok_or(Error::ChannelNotFound)?;
 
         if channel.state != ChannelState::Open {
@@ -768,19 +727,13 @@ impl PaymentChannelContract {
             return Err(Error::WatchtowerIsParty);
         }
 
-        let mut towers: Vec<Address> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Watchtowers(channel_id))
+        let mut towers: Vec<Address> = syncro_common::ttl::persistent_get(&env, &DataKey::Watchtowers(channel_id))
             .unwrap_or(vec![&env]);
         if towers.iter().any(|t| t == watchtower) {
             return Err(Error::WatchtowerAlreadyRegistered);
         }
 
-        let existing_bounty: i128 = env
-            .storage()
-            .persistent()
-            .get(&DataKey::WatchtowerBounty(channel_id))
+        let existing_bounty: i128 = syncro_common::ttl::persistent_get(&env, &DataKey::WatchtowerBounty(channel_id))
             .unwrap_or(0);
 
         if bounty < 0 {
@@ -802,21 +755,13 @@ impl PaymentChannelContract {
                 return Err(Error::InsufficientBalance);
             }
             channel.balance_a -= bounty;
-            env.storage()
-                .persistent()
-                .set(&DataKey::WatchtowerBounty(channel_id), &bounty);
-            env.storage()
-                .persistent()
-                .set(&DataKey::BountyPaid(channel_id), &false);
-            env.storage()
-                .persistent()
-                .set(&DataKey::Channel(channel_id), &channel);
+            syncro_common::ttl::persistent_set(&env, &DataKey::WatchtowerBounty(channel_id), &bounty);
+            syncro_common::ttl::persistent_set(&env, &DataKey::BountyPaid(channel_id), &false);
+            syncro_common::ttl::persistent_set(&env, &DataKey::Channel(channel_id), &channel);
         }
 
         towers.push_back(watchtower.clone());
-        env.storage()
-            .persistent()
-            .set(&DataKey::Watchtowers(channel_id), &towers);
+        syncro_common::ttl::persistent_set(&env, &DataKey::Watchtowers(channel_id), &towers);
 
         env.events().publish(
             (symbol_short!("channel"), symbol_short!("wt_reg")),
@@ -835,10 +780,7 @@ impl PaymentChannelContract {
     ) -> Result<(), Error> {
         party.require_auth();
 
-        let mut channel: PaymentChannel = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Channel(channel_id))
+        let mut channel: PaymentChannel = syncro_common::ttl::persistent_get(&env, &DataKey::Channel(channel_id))
             .ok_or(Error::ChannelNotFound)?;
 
         if channel.state != ChannelState::Open {
@@ -848,10 +790,7 @@ impl PaymentChannelContract {
             return Err(Error::Unauthorized);
         }
 
-        let towers: Vec<Address> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Watchtowers(channel_id))
+        let towers: Vec<Address> = syncro_common::ttl::persistent_get(&env, &DataKey::Watchtowers(channel_id))
             .unwrap_or(vec![&env]);
         if !towers.iter().any(|t| t == watchtower) {
             return Err(Error::NotWatchtower);
@@ -863,28 +802,16 @@ impl PaymentChannelContract {
                 remaining.push_back(t);
             }
         }
-        env.storage()
-            .persistent()
-            .set(&DataKey::Watchtowers(channel_id), &remaining);
+        syncro_common::ttl::persistent_set(&env, &DataKey::Watchtowers(channel_id), &remaining);
 
-        let paid: bool = env
-            .storage()
-            .persistent()
-            .get(&DataKey::BountyPaid(channel_id))
+        let paid: bool = syncro_common::ttl::persistent_get(&env, &DataKey::BountyPaid(channel_id))
             .unwrap_or(false);
-        let bounty: i128 = env
-            .storage()
-            .persistent()
-            .get(&DataKey::WatchtowerBounty(channel_id))
+        let bounty: i128 = syncro_common::ttl::persistent_get(&env, &DataKey::WatchtowerBounty(channel_id))
             .unwrap_or(0);
         if remaining.is_empty() && bounty > 0 && !paid {
             channel.balance_a += bounty;
-            env.storage()
-                .persistent()
-                .set(&DataKey::Channel(channel_id), &channel);
-            env.storage()
-                .persistent()
-                .set(&DataKey::WatchtowerBounty(channel_id), &0i128);
+            syncro_common::ttl::persistent_set(&env, &DataKey::Channel(channel_id), &channel);
+            syncro_common::ttl::persistent_set(&env, &DataKey::WatchtowerBounty(channel_id), &0i128);
         }
 
         env.events().publish(
@@ -895,16 +822,12 @@ impl PaymentChannelContract {
     }
 
     pub fn get_watchtowers(env: Env, channel_id: u64) -> Vec<Address> {
-        env.storage()
-            .persistent()
-            .get(&DataKey::Watchtowers(channel_id))
+        syncro_common::ttl::persistent_get(&env, &DataKey::Watchtowers(channel_id))
             .unwrap_or(vec![&env])
     }
 
     pub fn get_watchtower_bounty(env: Env, channel_id: u64) -> i128 {
-        env.storage()
-            .persistent()
-            .get(&DataKey::WatchtowerBounty(channel_id))
+        syncro_common::ttl::persistent_get(&env, &DataKey::WatchtowerBounty(channel_id))
             .unwrap_or(0)
     }
 
@@ -925,10 +848,7 @@ impl PaymentChannelContract {
     ) -> Result<(), Error> {
         watchtower.require_auth();
 
-        let mut channel: PaymentChannel = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Channel(channel_id))
+        let mut channel: PaymentChannel = syncro_common::ttl::persistent_get(&env, &DataKey::Channel(channel_id))
             .ok_or(Error::ChannelNotFound)?;
 
         if channel.state != ChannelState::Closing && channel.state != ChannelState::Dispute {
@@ -944,10 +864,7 @@ impl PaymentChannelContract {
             return Err(Error::InvalidAmount);
         }
 
-        let towers: Vec<Address> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Watchtowers(channel_id))
+        let towers: Vec<Address> = syncro_common::ttl::persistent_get(&env, &DataKey::Watchtowers(channel_id))
             .unwrap_or(vec![&env]);
         if !towers.iter().any(|t| t == watchtower) {
             return Err(Error::NotWatchtower);
@@ -961,15 +878,9 @@ impl PaymentChannelContract {
         sig_a.require_auth();
         sig_b.require_auth();
 
-        let bounty: i128 = env
-            .storage()
-            .persistent()
-            .get(&DataKey::WatchtowerBounty(channel_id))
+        let bounty: i128 = syncro_common::ttl::persistent_get(&env, &DataKey::WatchtowerBounty(channel_id))
             .unwrap_or(0);
-        let paid: bool = env
-            .storage()
-            .persistent()
-            .get(&DataKey::BountyPaid(channel_id))
+        let paid: bool = syncro_common::ttl::persistent_get(&env, &DataKey::BountyPaid(channel_id))
             .unwrap_or(false);
 
         // EFFECTS — persist dispute state and mark bounty paid before transfer.
@@ -977,14 +888,10 @@ impl PaymentChannelContract {
         channel.balance_b = balance_b;
         channel.sequence = sequence_number;
         channel.state = ChannelState::Dispute;
-        env.storage()
-            .persistent()
-            .set(&DataKey::Channel(channel_id), &channel);
+        syncro_common::ttl::persistent_set(&env, &DataKey::Channel(channel_id), &channel);
 
         if bounty > 0 && !paid {
-            env.storage()
-                .persistent()
-                .set(&DataKey::BountyPaid(channel_id), &true);
+            syncro_common::ttl::persistent_set(&env, &DataKey::BountyPaid(channel_id), &true);
         }
 
         env.events().publish(
