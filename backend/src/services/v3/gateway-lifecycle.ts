@@ -318,6 +318,7 @@ export function createGatewayLifecycle() {
         unitName: ctx.routePlan!.unitName,
         reservedUnits: ctx.routePlan!.reservationBound,
         reservedAmount: ctx.routePlan!.priceUpperBound,
+        unitPrice: ctx.routePlan!.unitPrice,
       });
 
       // Fail closed: serving usage we cannot account for is the exact gap this
@@ -469,6 +470,7 @@ export function createGatewayLifecycle() {
             actualUnits,
             actualAmount: actualUsage,
             fallbackUsed,
+            unitPrice: ctx.routePlan!.unitPrice,
           });
           if (!ledgerCommit.metered && !ledgerCommit.queuedForReplay) {
             logger.error('[Gateway] Served usage could not be recorded for reconciliation', {
