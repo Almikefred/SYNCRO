@@ -156,6 +156,19 @@ export class V3GatewayService {
     return this.providers.listRoutes(providerId);
   }
 
+  /**
+   * Dry-run: resolve the route (and price) a request would match without
+   * serving it (issue #1698). Returns null when nothing matches.
+   */
+  dryRunRoute(
+    providerId: string,
+    method: string,
+    path: string,
+  ): { route: RegisteredRoute; applicableVersion: RateCardVersion | null } | null {
+    this.getProviderOrThrow(providerId);
+    return this.providers.dryRunRoute(providerId, method, path);
+  }
+
   listRateCards(providerId: string): RateCardVersion[] {
     this.getProviderOrThrow(providerId);
     return this.providers.listRateCards(providerId);

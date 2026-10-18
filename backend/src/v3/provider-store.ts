@@ -236,16 +236,24 @@ export class InMemoryProviderStore {
   }
 
   registerRoute(input: RegisterRouteInput): RegisteredRoute {
+    const method = normalizeMethod(input.method);
+    const pattern = input.pathPattern.trim();
+    const duplicate = [...this.routes.values()].find(
+      (route) => route.providerId === input.providerId && route.method === method && route.pathPattern === pattern,
+    );
+    if (duplicate) {
+      throw new Error('route already registered for provider');
+    }
     const routeId = randomUUID();
     const route: RegisteredRoute = {
       routeId,
       providerId: input.providerId,
-      pathPattern: input.pathPattern,
-      method: normalizeMethod(input.method),
+      pathPattern: pattern,
+      method,
       unit: input.unit,
       price: input.price,
       quantityExtractor: input.quantityExtractor,
-      scopeKey: buildScopeKey(input.method, input.pathPattern),
+      scopeKey: buildScopeKey(input.method, pattern),
       rateLimit: input.rateLimit !== undefined ? normalizeRateLimitPolicy(input.rateLimit) : undefined,
       createdAt: nowIso(),
     };
@@ -298,6 +306,17 @@ export class InMemoryProviderStore {
     }
     if (!next.pathPattern || !next.method || !next.unit || !next.quantityExtractor) {
       throw new Error('route fields must not be empty');
+    }
+
+    const duplicate = [...this.routes.values()].find(
+      (route) =>
+        route.routeId !== existing.routeId &&
+        route.providerId === providerId &&
+        route.method === next.method &&
+        route.pathPattern === next.pathPattern,
+    );
+    if (duplicate) {
+      throw new Error('route already registered for provider');
     }
 
     const unchanged =
@@ -399,15 +418,43 @@ export class InMemoryProviderStore {
     };
   }
 
+  /**
+   * Route precedence: most specific pattern wins, independent of
+   * registration order (issue #1698).
+   *
+   * Specificity order, comparing `/`-separated segments left to right:
+   *   1. at the first differing segment, a static segment beats one
+   *      containing `*` (`/v1/chat` and `/v1/chat/*` both beat `/v1/*`
+   *      and `/v1/*/summary` for the path `/v1/chat/summary`);
+   *   2. when all shared segments agree, the longer pattern wins;
+   *   3. lexicographic pattern order as a final deterministic tie-break
+   *      (two identical patterns cannot coexist — registration rejects them).
+   */
   findRoute(providerId: string, method: string, requestPath: string): RegisteredRoute | null {
     const normalized = normalizeMethod(method);
-    const routeList = [...this.routes.values()].filter((route) => route.providerId === providerId && route.method === normalized);
-    for (const route of routeList) {
-      if (pathMatchesPattern(requestPath, route.pathPattern)) {
-        return route;
-      }
-    }
-    return null;
+    const matches = [...this.routes.values()].filter(
+      (route) =>
+        route.providerId === providerId &&
+        route.method === normalized &&
+        pathMatchesPattern(requestPath, route.pathPattern),
+    );
+    matches.sort((a, b) => compareSpecificity(a.pathPattern, b.pathPattern));
+    return matches[0] ?? null;
+  }
+
+  /**
+   * Dry-run match: shows which route (and price) would apply to a request
+   * without serving it. Backs the `POST .../routes/dry-run` endpoint.
+   */
+  dryRunRoute(
+    providerId: string,
+    method: string,
+    requestPath: string,
+    atIso: string = nowIso(),
+  ): { route: RegisteredRoute; applicableVersion: RateCardVersion | null } | null {
+    const route = this.findRoute(providerId, method, requestPath);
+    if (!route) return null;
+    return { route: { ...route }, applicableVersion: this.applicableVersion(route.routeId, atIso) };
   }
 
   private versionsFor(routeId: string): RateCardVersion[] {
@@ -439,6 +486,28 @@ export class InMemoryProviderStore {
     this.rateCards.set(version.versionId, version);
     return version;
   }
+}
+
+/**
+ * Order two path patterns by specificity (most specific first).
+ * See `findRoute` for the documented precedence rules.
+ */
+function compareSpecificity(a: string, b: string): number {
+  if (a === b) return 0;
+  const segA = a.split('/');
+  const segB = b.split('/');
+  const shared = Math.min(segA.length, segB.length);
+  for (let i = 0; i < shared; i += 1) {
+    if (segA[i] === segB[i]) continue;
+    // At the first differing segment, a static segment beats a wildcard.
+    const wildA = segA[i].includes('*');
+    const wildB = segB[i].includes('*');
+    if (wildA !== wildB) return wildA ? 1 : -1;
+    return segA[i] < segB[i] ? -1 : 1;
+  }
+  // All shared segments equal: the longer pattern is more specific.
+  if (segA.length !== segB.length) return segB.length - segA.length;
+  return a < b ? -1 : 1;
 }
 
 function pathMatchesPattern(path: string, pattern: string): boolean {
