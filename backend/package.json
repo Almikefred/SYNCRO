@@ -27,6 +27,7 @@
     "db:migrate:prod": "supabase db push --db-url \"$PRODUCTION_DB_URL\"",
     "db:reset": "supabase db reset",
     "db:new": "supabase migration new",
+    "seed:v3": "node scripts/seed-v3.mjs",
     "audit:rls": "node ../scripts/check-rls-compliance.js",
     "audit:rls:local": "node ../scripts/run-rls-audit-local.js",
     "test:rls-audit": "node ../scripts/test-rls-audit.js",
