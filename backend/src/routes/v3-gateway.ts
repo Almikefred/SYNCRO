@@ -33,9 +33,18 @@ const reviseRouteSchema = z
     message: 'at least one route field is required',
   });
 
-const payoutAddressSchema = z.object({
-  payoutAddress: z.string().min(1),
+const dryRunRouteSchema = z.object({
+  method: z.string().min(1),
+  path: z.string().min(1),
 });
+
+function sendRouteRegistrationError(res: Response, error: unknown) {
+  const message = error instanceof Error ? error.message : 'registration failed';
+  if (message === 'route already registered for provider') {
+    return res.status(409).json({ error: message });
+  }
+  return sendServiceError(res, error);
+}
 
 function routeParam(value: string | string[] | undefined): string {
   if (Array.isArray(value)) return value[0] ?? '';
@@ -156,7 +165,7 @@ router.patch('/providers/:providerId/routes/:routeId', (req: Request, res: Respo
     const result = service.reviseRoute(routeParam(req.params.providerId), routeParam(req.params.routeId), parsed.data);
     return res.json({ data: result });
   } catch (error) {
-    return sendServiceError(res, error);
+    return sendRouteRegistrationError(res, error);
   }
 });
 
@@ -218,7 +227,27 @@ router.post('/providers/:providerId/routes', (req: Request, res: Response) => {
     });
     return res.status(201).json({ data: route });
   } catch (error) {
-    return res.status(400).json({ error: error instanceof Error ? error.message : 'registration failed' });
+    return sendRouteRegistrationError(res, error);
+  }
+});
+
+router.post('/providers/:providerId/routes/dry-run', (req: Request, res: Response) => {
+  const parsed = dryRunRouteSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  try {
+    const match = service.dryRunRoute(
+      routeParam(req.params.providerId),
+      parsed.data.method,
+      parsed.data.path,
+    );
+    if (!match) {
+      return res.status(404).json({ error: 'no matching route' });
+    }
+    return res.json({ data: match });
+  } catch (error) {
+    return sendServiceError(res, error);
   }
 });
 
