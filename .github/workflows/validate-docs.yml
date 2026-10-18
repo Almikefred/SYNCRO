@@ -36,10 +36,12 @@ jobs:
       - name: Check relative markdown links
         uses: lycheeverse/lychee-action@v2
         with:
-          # Relative links only: --offline keeps the job from failing on the network.
+          # Relative links only: --offline keeps the job from failing on the network,
+          # and external URLs are excluded explicitly as well.
           args: >-
             --offline
             --no-progress
+            --exclude '^https?://'
             './**/*.md'
           fail: true
 
