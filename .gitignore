@@ -116,3 +116,8 @@ backend/tests/**/*.js
 backend/tests/**/*.js.map
 backend/tests/**/*.d.ts
 backend/tests/**/*.d.ts.map
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
