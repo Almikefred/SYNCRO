@@ -9,7 +9,7 @@ import {
 } from './payment-challenge-service';
 import { spendCapService } from './spend-cap-service';
 import { unitEconomicsService } from './unit-economics-service';
-import { agentConsoleService } from '../../v3/agent-console-service';
+import { AgentConsoleError, agentConsoleService } from '../../v3/agent-console-service';
 import {
   MeteredRouteConfig,
   meteredRouteRegistry,
@@ -255,6 +255,20 @@ export function createGatewayLifecycle() {
           requiredAmount: capCheck.requiredAmount,
           reason: capCheck.reason,
         });
+      }
+      // 4b. Principal aggregate: optional principal-wide daily limit across
+      // all agents. Rejects with the distinct `principal_daily_cap_exceeded`
+      // code when the principal total would be exceeded (#1701).
+      try {
+        agentConsoleService.checkPrincipalAdmission(
+          ctx.identity!.agentId,
+          ctx.routePlan!.priceUpperBound,
+        );
+      } catch (error) {
+        if (error instanceof AgentConsoleError && error.code === 'principal_daily_cap_exceeded') {
+          return res.status(error.status).json({ error: error.code, message: error.message });
+        }
+        throw error;
       }
       next();
     },
