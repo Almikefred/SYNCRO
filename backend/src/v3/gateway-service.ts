@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Keypair } from '@stellar/stellar-sdk';
 import {
   InMemoryProviderStore,
+  assertNetworkForMode,
   RecordSettlementInput,
   RegisterProviderInput,
   RegisterRouteInput,
@@ -179,9 +180,9 @@ export class V3GatewayService {
     if (!provider.payoutVerified) {
       throw new Error('provider payout address is not verified');
     }
-    if (provider.mode === 'production' && process.env.STELLAR_NETWORK !== 'mainnet') {
-      throw new Error('production providers require mainnet runtime');
-    }
+    // Sandbox rule (#1699): staging is testnet-only (separate keys/data,
+    // mainnet traffic refused); production requires the mainnet runtime.
+    assertNetworkForMode(provider.mode, process.env.STELLAR_NETWORK);
 
     const route = this.providers.findRoute(input.providerId, input.method, input.path);
     if (!route) {

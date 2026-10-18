@@ -294,6 +294,27 @@ export class InMemoryProviderStore {
   }
 }
 
+export type ProviderNetwork = 'mainnet' | 'testnet' | string | undefined;
+
+/**
+ * Sandbox rule (#1699): staging providers are testnet-only with separate
+ * keys and data; they must never serve mainnet traffic. Production
+ * providers require the mainnet runtime.
+ *
+ * Pure helper (no Stellar SDK dependency) so it can be unit-tested
+ * anywhere; `V3GatewayService.processPaidCall` enforces it at admission.
+ */
+export function assertNetworkForMode(mode: ProviderMode, network: ProviderNetwork): void {
+  if (mode === 'production' && network !== 'mainnet') {
+    throw new Error('production providers require mainnet runtime');
+  }
+  if (mode === 'staging' && network === 'mainnet') {
+    throw new Error(
+      'staging providers cannot serve mainnet traffic (staging_mainnet_forbidden): use testnet credentials and the test asset only',
+    );
+  }
+}
+
 function pathMatchesPattern(path: string, pattern: string): boolean {
   const regex = new RegExp(
     `^${pattern
