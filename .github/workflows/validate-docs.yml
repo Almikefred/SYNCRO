@@ -37,6 +37,13 @@ jobs:
 
       - name: Run doc validation
         run: node scripts/validate-docs.js
+
+      - name: Check relative markdown links
+        uses: lycheeverse/lychee-action@v2
+        with:
+          # Local relative links only; external URLs are out of scope and flaky in CI.
+          args: --no-progress --exclude '^https?://' 'README.md' 'docs/**/*.md' 'sdk/README.md' 'backend/README.md' 'backend/SUBSCRIPTION_API.md'
+          fail: true
       
       - name: Comment on PR if validation fails
         if: failure()
